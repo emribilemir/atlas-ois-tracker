@@ -214,6 +214,16 @@ class OISScraper:
                         date = cells[3].get_text(strip=True)
                     
                     if component_name and score is not None:
+                        # Handle duplicate component names (e.g. multiple "Ara Sınavlar")
+                        base_name = component_name
+                        counter = 1
+                        
+                        # Check if name already exists in current components
+                        existing_names = [c["name"] for c in current_course["components"]]
+                        while component_name in existing_names:
+                            counter += 1
+                            component_name = f"{base_name} {counter}"
+                        
                         current_course["components"].append({
                             "name": component_name,
                             "weight": weight,
