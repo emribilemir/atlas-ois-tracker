@@ -19,7 +19,12 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# Set Timezone
+ENV TZ="Europe/Istanbul"
+
 
 WORKDIR /app
 
