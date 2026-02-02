@@ -245,17 +245,22 @@ class GradeCheckerBot:
     
     async def _perform_check(self) -> tuple[list, dict] | None:
         """Perform a grade check. Returns (changes, grades) or None if failed."""
-        grades = await self.scraper.fetch_grades()
-        
-        if grades is None:
-            return None
-        
-        self.last_check = datetime.now()
-        self.check_count += 1
-        
-        changes = self.storage.compare_and_update(grades)
-        
-        return changes, grades
+        try:
+            grades = await self.scraper.fetch_grades()
+            
+            if grades is None:
+                return None
+            
+            self.last_check = datetime.now()
+            self.check_count += 1
+            
+            changes = self.storage.compare_and_update(grades)
+            
+            return changes, grades
+            
+        finally:
+            # Force close browser after every check to prevent RAM leaks
+            await self.scraper.close()
     
     async def _monitoring_loop(self):
         """Background monitoring loop."""
