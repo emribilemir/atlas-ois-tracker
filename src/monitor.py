@@ -7,6 +7,7 @@ from .logger import BotLogger
 
 def log_usage(interval=60):
     """Log RAM and CPU usage periodically."""
+    import gc
     process = psutil.Process(os.getpid())
     
     BotLogger.info(f"Monitor started (Interval: {interval}s)")
@@ -20,7 +21,12 @@ def log_usage(interval=60):
             # CPU usage
             cpu_percent = process.cpu_percent(interval=1)
             
-            BotLogger.log(f"[MONITOR] RAM: {ram_mb:.2f} MB | CPU: {cpu_percent}%")
+            # Warning if approaching limit
+            if ram_mb > 400:
+                BotLogger.error(f"⚠️ HIGH MEMORY: {ram_mb:.0f}MB - Triggering GC")
+                gc.collect()
+            else:
+                BotLogger.log(f"RAM: {ram_mb:.0f}MB | CPU: {cpu_percent}%")
             
             time.sleep(interval)
             

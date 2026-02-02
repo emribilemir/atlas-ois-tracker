@@ -346,6 +346,8 @@ class GradeCheckerBot:
 
     async def _perform_check(self) -> tuple[list, dict] | None:
         """Perform a grade check. Returns (changes, grades) or None if failed."""
+        import gc
+        
         try:
             # 1. Fetch Grades
             grades = await self.scraper.fetch_grades()
@@ -358,26 +360,29 @@ class GradeCheckerBot:
             
             changes = self.storage.compare_and_update(grades)
             
-            # 2. Fetch Exams
-            exams = await self.scraper.fetch_exams()
-            if exams:
-                from .bot_status import BotStatus
-                
-                if len(exams) > BotStatus.exam_count:
-                    exam_msg = f"🚨 *DİKKAT! Sınav Programı Açıklandı!* 🚨\n\nToplam {len(exams)} sınav görünüyor.\nDetaylar için /exams yazabilirsin."
-                    if self.app:
-                        await self.app.bot.send_message(
-                            chat_id=Config.TELEGRAM_CHAT_ID,
-                            text=exam_msg,
-                            parse_mode="Markdown"
-                        )
-                
-                BotStatus.exam_count = len(exams)
+            # 2. Fetch Exams (THROTTLED: every 12th check = ~1 hour)
+            if self.check_count % 12 == 1:  # First check + every 12th
+                BotLogger.info("Exam check triggered (1/12)")
+                exams = await self.scraper.fetch_exams()
+                if exams:
+                    from .bot_status import BotStatus
+                    
+                    if len(exams) > BotStatus.exam_count:
+                        exam_msg = f"🚨 *DİKKAT! Sınav Programı Açıklandı!* 🚨\n\nToplam {len(exams)} sınav görünüyor.\nDetaylar için /exams yazabilirsin."
+                        if self.app:
+                            await self.app.bot.send_message(
+                                chat_id=Config.TELEGRAM_CHAT_ID,
+                                text=exam_msg,
+                                parse_mode="Markdown"
+                            )
+                    
+                    BotStatus.exam_count = len(exams)
             
             return changes, grades
             
         finally:
             await self.scraper.close()
+            gc.collect()  # Force garbage collection to free memory
     
     async def _monitoring_loop(self):
         """Background monitoring loop."""
