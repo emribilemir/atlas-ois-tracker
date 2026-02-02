@@ -15,6 +15,10 @@ from .ois_scraper import OISScraper
 from .grade_storage import GradeStorage, format_changes, format_full_grades
 
 
+import sys
+import os
+from .logger import BotLogger
+
 def get_keyboard(monitoring: bool = False):
     """Get inline keyboard with command buttons."""
     if monitoring:
@@ -24,7 +28,8 @@ def get_keyboard(monitoring: bool = False):
                 InlineKeyboardButton("📊 Durum", callback_data="status"),
             ],
             [
-                InlineKeyboardButton("🔍 Kontrol Et", callback_data="check"),
+                InlineKeyboardButton("🔍 Kontrol", callback_data="check"),
+                InlineKeyboardButton("🛠 Admin", callback_data="admin_menu"),
             ]
         ]
     else:
@@ -34,10 +39,28 @@ def get_keyboard(monitoring: bool = False):
                 InlineKeyboardButton("📊 Durum", callback_data="status"),
             ],
             [
-                InlineKeyboardButton("🔍 Kontrol Et", callback_data="check"),
+                InlineKeyboardButton("🔍 Kontrol", callback_data="check"),
+                InlineKeyboardButton("🛠 Admin", callback_data="admin_menu"),
             ]
         ]
     return InlineKeyboardMarkup(buttons)
+
+def get_admin_keyboard():
+    """Get admin menu keyboard."""
+    buttons = [
+        [
+            InlineKeyboardButton("📜 Loglar", callback_data="logs"),
+            InlineKeyboardButton("🔁 Yeniden Başlat", callback_data="restart_confirm"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Ana Menü", callback_data="back_main"),
+        ]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+
+
 
 
 class GradeCheckerBot:
@@ -150,13 +173,66 @@ class GradeCheckerBot:
                 reply_markup=get_keyboard(self.monitoring)
             )
     
+    async def logs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /logs command - show recent logs."""
+        logs = BotLogger.get_logs()
+        if len(logs) > 4000:
+            logs = logs[-4000:]
+            
+        await update.message.reply_text(
+            f"📜 *Son Loglar:*\n```\n{logs}\n```",
+            parse_mode="Markdown"
+        )
+
+    async def restart(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /restart command - restart the bot."""
+        await update.message.reply_text("🔁 Bot yeniden başlatılıyor...")
+        import time
+        time.sleep(1)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline button presses."""
         query = update.callback_query
         await query.answer()
         
-        # Create a fake update with message for reusing command handlers
-        if query.data == "start":
+        data = query.data
+        
+        # Admin Menu Navigation
+        if data == "admin_menu":
+            await query.edit_message_text(
+                "🛠 *Admin Paneli*",
+                parse_mode="Markdown",
+                reply_markup=get_admin_keyboard()
+            )
+            return
+            
+        elif data == "back_main":
+            status_text = "✅ Monitoring Aktif" if self.monitoring else "🛑 Monitoring Kapalı"
+            await query.edit_message_text(
+                f"{status_text}\nNe yapmak istersiniz?",
+                reply_markup=get_keyboard(self.monitoring)
+            )
+            return
+
+        elif data == "logs":
+            logs = BotLogger.get_logs()
+            if len(logs) > 4000:
+                logs = logs[-4000:]
+            await query.edit_message_text(
+                f"📜 *Son Loglar:*\n```\n{logs}\n```",
+                parse_mode="Markdown",
+                reply_markup=get_admin_keyboard()
+            )
+            return
+            
+        elif data == "restart_confirm":
+            await query.edit_message_text("🔁 Bot yeniden başlatılıyor... (1-2 dk sürebilir)")
+            os.execl(sys.executable, sys.executable, *sys.argv)
+            return
+
+        # Standard handlers
+        if data == "start":
             if self.monitoring:
                 await query.edit_message_text(
                     "⚠️ Monitoring zaten aktif!",
@@ -173,7 +249,7 @@ class GradeCheckerBot:
                 reply_markup=get_keyboard(self.monitoring)
             )
         
-        elif query.data == "stop":
+        elif data == "stop":
             if not self.monitoring:
                 await query.edit_message_text(
                     "⚠️ Monitoring zaten kapalı!",
@@ -193,7 +269,7 @@ class GradeCheckerBot:
                 reply_markup=get_keyboard(self.monitoring)
             )
         
-        elif query.data == "status":
+        elif data == "status":
             status_emoji = "🟢" if self.monitoring else "🔴"
             status_text = "Aktif" if self.monitoring else "Kapalı"
             
@@ -213,7 +289,7 @@ class GradeCheckerBot:
                 reply_markup=get_keyboard(self.monitoring)
             )
         
-        elif query.data == "check":
+        elif data == "check":
             await query.edit_message_text("🔍 Notlar kontrol ediliyor...")
             
             try:
@@ -248,9 +324,8 @@ class GradeCheckerBot:
         await update.message.reply_text("📅 Sınav takvimi kontrol ediliyor...")
         
         try:
-            # Re-use scraper instance but ensure session is valid
             exams = await self.scraper.fetch_exams()
-            await self.scraper.close() # Close after check
+            await self.scraper.close()
             
             if not exams:
                 await update.message.reply_text("ℹ️ Sınav programı henüz açıklanmamış veya boş.")
@@ -283,14 +358,12 @@ class GradeCheckerBot:
             
             changes = self.storage.compare_and_update(grades)
             
-            # 2. Fetch Exams (New Logic)
+            # 2. Fetch Exams
             exams = await self.scraper.fetch_exams()
             if exams:
-                from .bot_status import BotStatus # Lazy import to avoid circular dependency issues if any
+                from .bot_status import BotStatus
                 
-                # Check if exam count increased
                 if len(exams) > BotStatus.exam_count:
-                    # Notify about new exams!
                     exam_msg = f"🚨 *DİKKAT! Sınav Programı Açıklandı!* 🚨\n\nToplam {len(exams)} sınav görünüyor.\nDetaylar için /exams yazabilirsin."
                     if self.app:
                         await self.app.bot.send_message(
@@ -304,9 +377,31 @@ class GradeCheckerBot:
             return changes, grades
             
         finally:
-            # Force close browser after every check to prevent RAM leaks
             await self.scraper.close()
+    
+    async def _monitoring_loop(self):
+        """Background monitoring loop."""
+        while self.monitoring:
+            try:
+                result = await self._perform_check()
+                
+                if result:
+                    changes, _ = result
+                    if changes:
+                        await self.app.bot.send_message(
+                            chat_id=Config.TELEGRAM_CHAT_ID,
+                            text=format_changes(changes),
+                            parse_mode="Markdown",
+                            reply_markup=get_keyboard(self.monitoring)
+                        )
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                BotLogger.error(f"Monitoring error: {e}")
             
+            await asyncio.sleep(Config.CHECK_INTERVAL)
+    
     def run(self):
         """Run the bot."""
         missing = Config.validate()
@@ -322,11 +417,13 @@ class GradeCheckerBot:
         self.app.add_handler(CommandHandler("stop", self.stop))
         self.app.add_handler(CommandHandler("status", self.status))
         self.app.add_handler(CommandHandler("check", self.check))
-        self.app.add_handler(CommandHandler("exams", self.exams)) # Added handler
+        self.app.add_handler(CommandHandler("exams", self.exams))
+        self.app.add_handler(CommandHandler("logs", self.logs))      # Added logs handler
+        self.app.add_handler(CommandHandler("restart", self.restart)) # Added restart handler
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         
-        print("🤖 Bot starting...")
-        print(f"📱 Chat ID: {Config.TELEGRAM_CHAT_ID}")
-        print(f"⏰ Check interval: {Config.CHECK_INTERVAL}s")
+        BotLogger.info("🤖 Bot starting...")
+        BotLogger.info(f"📱 Chat ID: {Config.TELEGRAM_CHAT_ID}")
+        BotLogger.info(f"⏰ Check interval: {Config.CHECK_INTERVAL}s")
         
         self.app.run_polling(allowed_updates=Update.ALL_TYPES)

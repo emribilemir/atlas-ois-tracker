@@ -3,11 +3,13 @@ import threading
 import psutil
 import os
 
+from .logger import BotLogger
+
 def log_usage(interval=60):
     """Log RAM and CPU usage periodically."""
     process = psutil.Process(os.getpid())
     
-    print(f"[MONITOR] Starting resource monitoring (Interval: {interval}s)")
+    BotLogger.info(f"Monitor started (Interval: {interval}s)")
     
     while True:
         try:
@@ -18,12 +20,12 @@ def log_usage(interval=60):
             # CPU usage
             cpu_percent = process.cpu_percent(interval=1)
             
-            print(f"[MONITOR] RAM: {ram_mb:.2f} MB | CPU: {cpu_percent}%")
+            BotLogger.log(f"[MONITOR] RAM: {ram_mb:.2f} MB | CPU: {cpu_percent}%")
             
             time.sleep(interval)
             
         except Exception as e:
-            print(f"[MONITOR] Error: {e}")
+            BotLogger.error(f"Monitor error: {e}")
             time.sleep(interval)
 
 def start_monitoring(interval=60):
