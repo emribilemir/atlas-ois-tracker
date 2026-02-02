@@ -233,6 +233,85 @@ class OISScraper:
         
         return grades
     
+    async def fetch_exams(self) -> Optional[list]:
+        """
+        Fetch exam schedule from OIS.
+        
+        Returns:
+            List of exams, or None if failed
+        """
+        if not self.logged_in:
+            if not await self.login():
+                return None
+        
+        try:
+            await self._page.goto(Config.OIS_EXAM_URL, wait_until="networkidle")
+            
+            # Wait for table
+            try:
+                await self._page.wait_for_selector("table.a4", timeout=10000)
+            except:
+                print("[DEBUG] Exam table not found (timeout)")
+                return []
+            
+            self._page_content = await self._page.content()
+            exams = self.parse_exams()
+            print(f"[DEBUG] Parsed {len(exams)} exams")
+            return exams
+            
+        except Exception as e:
+            print(f"Failed to fetch exams: {e}")
+            self.logged_in = False
+            return None
+
+    def parse_exams(self) -> list:
+        """Parse exams from the current page."""
+        soup = BeautifulSoup(self._page_content or "", "html.parser")
+        
+        # Based on HTML dump, tables have class 'a4'
+        tables = soup.find_all("table", class_="a4")
+        if not tables:
+            return []
+            
+        exams = []
+        
+        # We need to find the table that contains "SINAV TİPİ" header
+        target_table = None
+        for table in tables:
+            if "SINAV TİPİ" in table.get_text():
+                target_table = table
+                break
+        
+        if not target_table:
+            return []
+
+        rows = target_table.find_all("tr")
+        
+        for row in rows:
+            # Skip header row (checking for class 'sutun_baslik' which is in header cells)
+            if row.find("td", class_="sutun_baslik"):
+                continue
+                
+            cells = row.find_all("td")
+            if len(cells) >= 8:
+                # Cleaning up text
+                exam = {
+                    "type": cells[0].get_text(strip=True),
+                    "code": cells[1].get_text(strip=True),
+                    "name": cells[2].get_text(strip=True),
+                    "datetime": cells[3].get_text(strip=True),
+                    "campus": cells[4].get_text(strip=True),
+                    "classroom": cells[5].get_text(strip=True),
+                    "instructor": cells[6].get_text(strip=True),
+                    "description": cells[7].get_text(strip=True)
+                }
+                
+                # Basic validation: ensure it has at least a name and date
+                if exam["name"] and exam["datetime"]:
+                    exams.append(exam)
+                    
+        return exams
+
     async def close(self):
         """Close browser."""
         if self.browser:

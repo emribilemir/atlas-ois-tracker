@@ -27,6 +27,7 @@ class Config:
     OIS_LOGIN_URL: str = f"{OIS_BASE_URL}/auth/login"
     OIS_CAPTCHA_URL: str = f"{OIS_BASE_URL}/auth/captcha"
     OIS_GRADES_URL: str = f"{OIS_BASE_URL}/ogrenciler/belge/ogrsinavsonuc"
+    OIS_EXAM_URL: str = f"{OIS_BASE_URL}/ogrenciler/belge/sinavprogrami"
     
     # Paths
     DATA_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")

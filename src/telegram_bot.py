@@ -243,9 +243,36 @@ class GradeCheckerBot:
                     reply_markup=get_keyboard(self.monitoring)
                 )
     
+    async def exams(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /exams command - check for exam schedule."""
+        await update.message.reply_text("📅 Sınav takvimi kontrol ediliyor...")
+        
+        try:
+            # Re-use scraper instance but ensure session is valid
+            exams = await self.scraper.fetch_exams()
+            await self.scraper.close() # Close after check
+            
+            if not exams:
+                await update.message.reply_text("ℹ️ Sınav programı henüz açıklanmamış veya boş.")
+                return
+            
+            message = "📅 *Sınav Takvimi:*\n\n"
+            for exam in exams:
+                message += f"📘 *{exam['name']}* ({exam['code']})\n"
+                message += f"🗓 {exam['datetime']}\n"
+                message += f"🏫 {exam['campus']} - {exam['classroom']}\n"
+                message += f"👨‍🏫 {exam['instructor']}\n"
+                message += "-------------------\n"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Hata: {e}")
+
     async def _perform_check(self) -> tuple[list, dict] | None:
         """Perform a grade check. Returns (changes, grades) or None if failed."""
         try:
+            # 1. Fetch Grades
             grades = await self.scraper.fetch_grades()
             
             if grades is None:
@@ -256,35 +283,30 @@ class GradeCheckerBot:
             
             changes = self.storage.compare_and_update(grades)
             
+            # 2. Fetch Exams (New Logic)
+            exams = await self.scraper.fetch_exams()
+            if exams:
+                from .bot_status import BotStatus # Lazy import to avoid circular dependency issues if any
+                
+                # Check if exam count increased
+                if len(exams) > BotStatus.exam_count:
+                    # Notify about new exams!
+                    exam_msg = f"🚨 *DİKKAT! Sınav Programı Açıklandı!* 🚨\n\nToplam {len(exams)} sınav görünüyor.\nDetaylar için /exams yazabilirsin."
+                    if self.app:
+                        await self.app.bot.send_message(
+                            chat_id=Config.TELEGRAM_CHAT_ID,
+                            text=exam_msg,
+                            parse_mode="Markdown"
+                        )
+                
+                BotStatus.exam_count = len(exams)
+            
             return changes, grades
             
         finally:
             # Force close browser after every check to prevent RAM leaks
             await self.scraper.close()
-    
-    async def _monitoring_loop(self):
-        """Background monitoring loop."""
-        while self.monitoring:
-            try:
-                result = await self._perform_check()
-                
-                if result:
-                    changes, _ = result
-                    if changes:
-                        await self.app.bot.send_message(
-                            chat_id=Config.TELEGRAM_CHAT_ID,
-                            text=format_changes(changes),
-                            parse_mode="Markdown",
-                            reply_markup=get_keyboard(self.monitoring)
-                        )
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"Monitoring error: {e}")
             
-            await asyncio.sleep(Config.CHECK_INTERVAL)
-    
     def run(self):
         """Run the bot."""
         missing = Config.validate()
@@ -300,6 +322,7 @@ class GradeCheckerBot:
         self.app.add_handler(CommandHandler("stop", self.stop))
         self.app.add_handler(CommandHandler("status", self.status))
         self.app.add_handler(CommandHandler("check", self.check))
+        self.app.add_handler(CommandHandler("exams", self.exams)) # Added handler
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         
         print("🤖 Bot starting...")
