@@ -17,19 +17,36 @@ class OISScraper:
     def __init__(self):
         self.browser: Browser | None = None
         self.logged_in = False
+        self._playwright = None
     
     async def _ensure_browser(self):
-        """Ensure browser is initialized."""
+        """Ensure browser is initialized with memory-saving args."""
         if self.browser is None:
-            playwright = await async_playwright().start()
-            self.browser = await playwright.chromium.launch(headless=True)
+            self._playwright = await async_playwright().start()
+            self.browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-gpu',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--single-process',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--no-first-run',
+                    '--disable-features=site-per-process',
+                    '--js-flags=--max-old-space-size=128'
+                ]
+            )
     
-    async def login(self, max_attempts: int = 10) -> bool:
+    async def login(self, max_attempts: int = 3) -> bool:
         """
         Login to OIS portal using Playwright.
         
         Args:
-            max_attempts: Maximum CAPTCHA solving attempts
+            max_attempts: Maximum CAPTCHA solving attempts (reduced for memory)
             
         Returns:
             True if login successful, False otherwise
@@ -41,8 +58,8 @@ class OISScraper:
             page = await context.new_page()
             
             try:
-                # Go to login page
-                await page.goto(Config.OIS_LOGIN_URL, wait_until="networkidle")
+                # Go to login page with reduced timeout
+                await page.goto(Config.OIS_LOGIN_URL, wait_until="networkidle", timeout=15000)
                 
                 # Get CAPTCHA image with high quality screenshot (uses device_scale_factor=2)
                 captcha_img = page.locator("#img_captcha")
@@ -64,7 +81,7 @@ class OISScraper:
                 await page.click('button[type="submit"]')
                 
                 # Wait for navigation
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("networkidle", timeout=15000)
                 
                 # Check if login was successful
                 current_url = page.url
@@ -313,8 +330,21 @@ class OISScraper:
         return exams
 
     async def close(self):
-        """Close browser."""
+        """Close browser and playwright."""
+        try:
+            if hasattr(self, '_context') and self._context:
+                await self._context.close()
+                self._context = None
+        except:
+            pass
+        
         if self.browser:
             await self.browser.close()
             self.browser = None
+        
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
+            
         self.logged_in = False
+
