@@ -386,12 +386,16 @@ class GradeCheckerBot:
     
     async def _monitoring_loop(self):
         """Background monitoring loop."""
+        BotLogger.info("🔄 Monitoring loop STARTED")
+        
         while self.monitoring:
             try:
+                BotLogger.info(f"⏳ Starting check #{self.check_count + 1}...")
                 result = await self._perform_check()
                 
                 if result:
                     changes, _ = result
+                    BotLogger.info(f"✅ Check #{self.check_count} complete")
                     if changes:
                         await self.app.bot.send_message(
                             chat_id=Config.TELEGRAM_CHAT_ID,
@@ -399,13 +403,19 @@ class GradeCheckerBot:
                             parse_mode="Markdown",
                             reply_markup=get_keyboard(self.monitoring)
                         )
+                else:
+                    BotLogger.error("❌ Check returned None (login failed?)")
                 
             except asyncio.CancelledError:
+                BotLogger.info("⛔ Monitoring cancelled")
                 break
             except Exception as e:
                 BotLogger.error(f"Monitoring error: {e}")
             
+            BotLogger.info(f"💤 Sleeping {Config.CHECK_INTERVAL}s...")
             await asyncio.sleep(Config.CHECK_INTERVAL)
+        
+        BotLogger.info("🛑 Monitoring loop STOPPED")
     
     def run(self):
         """Run the bot."""
